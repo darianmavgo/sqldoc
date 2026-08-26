@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The viewer is its own application bundle, nested inside sqldoc.app.
+       A plain executable spawned as a child process does not get a GUI session
+       and cannot put a window on screen; a bundle launched through Launch
+       Services does. This exists so the window actually appears. -->
+  <key>CFBundleName</key>              <string>sqldoc</string>
+  <key>CFBundleDisplayName</key>       <string>sqldoc</string>
+  <key>CFBundleIdentifier</key>        <string>com.mavgo.sqldoc.viewer</string>
+  <key>CFBundleExecutable</key>        <string>sqldoc-view</string>
+  <key>CFBundlePackageType</key>       <string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>CFBundleVersion</key>           <string>0.2.0</string>
+  <key>LSMinimumSystemVersion</key>    <string>11.0</string>
+  <key>NSHighResolutionCapable</key>   <true/>
+
+  <!-- Without NSPrincipalClass, AppKit never fully promotes the process to a
+       foreground application: the window gets created at the right size and
+       position and is simply never ordered onto the screen. Running the same
+       binary from a shell works, which makes this look like the app failing to
+       start rather than failing to show itself. -->
+  <key>NSPrincipalClass</key>          <string>NSApplication</string>
+  <key>LSUIElement</key>               <false/>
+  <key>LSBackgroundOnly</key>          <false/>
+</dict>
+</plist>

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>              <string>sqldoc</string>
+  <key>CFBundleDisplayName</key>       <string>sqldoc</string>
+  <key>CFBundleIdentifier</key>        <string>com.mavgo.sqldoc</string>
+  <key>CFBundleExecutable</key>        <string>sqldoc-launcher</string>
+  <key>CFBundlePackageType</key>       <string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>CFBundleVersion</key>           <string>0.2.0</string>
+  <key>LSMinimumSystemVersion</key>    <string>11.0</string>
+  <key>NSHighResolutionCapable</key>   <true/>
+
+  <!-- Declaring the document types is what puts sqldoc in Finder's "Open With"
+       menu and lets a double-clicked database launch it, the same way a PDF
+       reaches a browser. LSHandlerRank Alternate means this does not seize the
+       association from whatever already owns .db on the machine; choosing
+       "Always Open With" still works. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>      <string>SQLite database</string>
+      <key>CFBundleTypeRole</key>      <string>Viewer</string>
+      <key>LSHandlerRank</key>         <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.database</string>
+        <string>com.mavgo.sqldoc.sqlite</string>
+      </array>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>db</string><string>sqlite</string><string>sqlite3</string>
+        <string>db3</string><string>s3db</string><string>sl3</string>
+      </array>
+    </dict>
+  </array>
+
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>      <string>com.mavgo.sqldoc.sqlite</string>
+      <key>UTTypeDescription</key>     <string>SQLite database</string>
+      <key>UTTypeConformsTo</key>
+      <array><string>public.data</string><string>public.database</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>db</string><string>sqlite</string><string>sqlite3</string>
+          <string>db3</string><string>s3db</string><string>sl3</string>
+        </array>
+        <key>public.mime-type</key>
+        <array><string>application/vnd.sqlite3</string><string>application/x-sqlite3</string></array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

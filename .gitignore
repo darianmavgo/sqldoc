@@ -1,0 +1,8 @@
+bin/
+testdata/*.db
+testdata/*.db-shm
+testdata/*.db-wal
+
+# stale root build artifacts (Makefile builds into bin/)
+/sqldoc
+/sqldoc-view
