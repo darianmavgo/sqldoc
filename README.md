@@ -28,6 +28,19 @@ rank `Alternate` until you run it: installing a viewer should not quietly seize
 a file type out from under whatever already handles it. To undo it, use Finder's
 Get Info → Open with → Change All on any `.db`.
 
+For the standalone window on its own — the native app, no browser front end —
+there is a script that does the whole thing:
+
+```
+./scripts/install.sh                # build, install, register
+./scripts/install.sh --set-default  # and open databases on double-click
+./scripts/install.sh --uninstall    # take it back off
+```
+
+It installs `sqldoc-view`, the `sqldoc.app` bundle, and a `sqldoc-app` launcher
+that opens a database in a window from the shell. On Linux it installs the
+viewer and a desktop entry instead.
+
 ## What it is
 
 A read-only document viewer for SQLite. Not an editor, not a SQL console — the
@@ -122,6 +135,7 @@ sqldoc serve <file.db>      serve it, print the URL, do not launch anything
 sqldoc info  <file.db>      what the document contains
 sqldoc bench <file.db>      measure how fast it reads
 sqldoc-view  <file.db>      native window (macOS/Linux/Windows WebView)
+sqldoc-app   <file.db>      the same window, launched through the installed app
 ```
 
 Flags: `-p <port>`, `-no-open`, `-immutable`, `-version`.

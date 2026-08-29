@@ -52,9 +52,59 @@ async function boot() {
   wire();
   wireOpening();
   await refreshSession();
+  const args = new URL(location.href).searchParams;
+
   const first = S.session.docs[0];
-  if (first) await openDoc(first.id);
-  else showStart();
+  if (first) { await openDoc(first.id); return; }
+
+  // The native window creates itself before it opens anything, because opening
+  // a file can block for as long as the operating system feels like it. So the
+  // documents are still on their way, and the window says so rather than
+  // showing a start page that is about to be replaced.
+  if (args.has("opening")) { waitForDocs(+args.get("opening") || 1); return; }
+
+  // Nothing to show and nothing coming. The start page goes up first so that
+  // dismissing the dialog lands somewhere, and so the dialog is a sheet on a
+  // window that is already on screen rather than a panel floating on its own.
+  showStart();
+  if (S.session.canPick && args.has("pick")) await pickFile();
+}
+
+// waitForDocs holds the window on a progress message until the documents the
+// viewer is opening have arrived.
+//
+// The viewer calls sqldocOpened when it is done, but it cannot be relied on to
+// arrive after this page is listening: a database that opens quickly is open
+// before the first script runs. So the session is polled as well, and whichever
+// gets here first wins. The deadline is the answer to an open that never
+// returns at all - the window says what happened instead of waiting forever.
+function waitForDocs(n) {
+  el.busy.classList.add("on");
+  el.busyFill.style.width = "100%";
+  el.busyFill.classList.add("waiting");
+  el.busyMsg.textContent = n > 1 ? `Opening ${n} databases…` : "Opening…";
+
+  let done = false;
+  const finish = async () => {
+    if (done) return;
+    done = true;
+    clearInterval(poll);
+    el.busy.classList.remove("on");
+    el.busyFill.classList.remove("waiting");
+    el.busyFill.style.width = "0";
+    await refreshSession();
+    const first = S.session.docs[0];
+    if (first) await openDoc(first.id);
+    else showStart();
+  };
+
+  window.sqldocOpened = finish;
+  const started = Date.now();
+  const poll = setInterval(async () => {
+    if (done) return;
+    await refreshSession();
+    if (S.session.docs.length || Date.now() - started > 60000) finish();
+  }, 300);
 }
 
 async function refreshSession() {

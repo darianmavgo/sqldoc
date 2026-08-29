@@ -25,6 +25,19 @@ var ErrUnsupported = errors.New("no file dialog available on this system")
 // Databases is the file filter offered by the dialog.
 var Databases = []string{"db", "sqlite", "sqlite3", "db3", "s3db", "sl3"}
 
+// Native, when set, is an open dialog belonging to the running application
+// itself, and it is used in preference to everything below.
+//
+// The scripted dialogs here are owned by some other program, because that is
+// the only kind a process without an event loop can put on screen. They work,
+// and they are what a command-line front end has to use, but they end badly on
+// macOS: the application that owned the dialog is still in front when it
+// closes, and the window the database was chosen for is left behind it. A front
+// end with a real window can do what every other Mac application does and run
+// the panel itself, attached to that window; when one can, it registers it
+// here. See cmd/sqldoc-view/openpanel_darwin.m.
+var Native func(ctx context.Context, prompt string) (string, error)
+
 // Open shows an open-file dialog and returns the chosen path.
 func Open(ctx context.Context, prompt string) (string, error) {
 	// The dialog is modal and waits on a person, so the only deadline that
@@ -32,6 +45,10 @@ func Open(ctx context.Context, prompt string) (string, error) {
 	// the process forever.
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+
+	if Native != nil {
+		return Native(ctx, prompt)
+	}
 
 	switch runtime.GOOS {
 	case "darwin":
@@ -120,6 +137,9 @@ func finish(out string, err error) (string, error) {
 // Available reports whether a dialog can be shown, so the viewer can hide the
 // Open button rather than offer one that fails.
 func Available() bool {
+	if Native != nil {
+		return true
+	}
 	switch runtime.GOOS {
 	case "darwin":
 		_, err := exec.LookPath("osascript")

@@ -1,0 +1,129 @@
+#!/bin/sh
+# sqldoc-app - open a database in the standalone sqldoc window.
+#
+# The native viewer, not the browser. `sqldoc file.db` starts a loopback server
+# and hands the URL to whatever browser you have; this puts the same viewer in a
+# window of its own and gets out of the way. Nothing here talks to a browser.
+#
+# On macOS the window has to come from the installed application bundle rather
+# than from a binary forked by a shell script: a child process spawned without a
+# GUI session serves its port perfectly well and never puts anything on screen.
+# Going through `open` is what gets it a session that can own a window. On every
+# other platform the binary is the application and is executed directly.
+#
+#   sqldoc-app                  start page: recent files, drag and drop
+#   sqldoc-app data.db          one database
+#   sqldoc-app a.db b.db        several at once, switch between them
+#   sqldoc-app -w data.db       stay in the foreground until the window closes
+#   sqldoc-app -immutable f.db  promise the file will not change while open
+#
+# SQLDOC_APP   overrides which sqldoc.app is used
+# SQLDOC_VIEW  overrides which sqldoc-view binary is used
+
+set -eu
+
+self=$0
+case $self in
+  */*) here=$(cd "${self%/*}" && pwd) ;;
+  *)   here=$(pwd) ;;
+esac
+
+usage() {
+  sed -n '2,21p' "$self" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+# Launch Services hands the application a working directory of /, so a relative
+# path that was perfectly good in the shell becomes meaningless by the time the
+# viewer reads it. Every path is resolved here, while $PWD still means something.
+abspath() {
+  case $1 in
+    /*) printf '%s\n' "$1" ;;
+    *)  printf '%s\n' "$PWD/$1" ;;
+  esac
+}
+
+wait_for_exit=0
+args=""
+files=""
+for a in "$@"; do
+  case $a in
+    -h|--help)  usage 0 ;;
+    -w|--wait)  wait_for_exit=1 ;;
+    -*)         args="$args
+$a" ;;
+    *)
+      if [ ! -e "$a" ]; then
+        echo "sqldoc-app: no such file: $a" >&2
+        exit 1
+      fi
+      files="$files
+$(abspath "$a")" ;;
+  esac
+done
+
+# Rebuild the argument list from the two collected newline-separated lists, so
+# that paths containing spaces survive. Flags go first; the viewer treats
+# anything that is not a flag as a document to open.
+IFS='
+'
+# shellcheck disable=SC2086
+set -- $args $files
+unset IFS
+
+exists() { [ -x "$1" ] || [ -d "$1" ]; }
+
+find_first() {
+  for c in "$@"; do
+    [ -n "$c" ] || continue
+    if exists "$c"; then printf '%s\n' "$c"; return 0; fi
+  done
+  return 1
+}
+
+if [ "$(uname -s)" = Darwin ]; then
+  # The bundle is preferred: it is the same application Finder launches, so a
+  # database opened from the shell and one opened by double-click behave alike.
+  #
+  # A build sitting next to this script wins over an installed one. Run out of a
+  # checkout and you get that checkout, which is the only reading under which
+  # testing a change means anything; the copy installed on PATH has no bin/ next
+  # to it and goes straight to /Applications.
+  app=$(find_first \
+    "${SQLDOC_APP-}" \
+    "$here/../bin/sqldoc.app" \
+    "$here/bin/sqldoc.app" \
+    /Applications/sqldoc.app \
+    "$HOME/Applications/sqldoc.app" || true)
+
+  if [ -n "$app" ]; then
+    # -n: a new instance every time, so opening a second set of databases gives
+    # a second window instead of quietly activating the one already up.
+    if [ "$wait_for_exit" = 1 ]; then
+      exec open -n -W -a "$app" --args "$@"
+    fi
+    exec open -n -a "$app" --args "$@"
+  fi
+fi
+
+# No bundle, or not macOS: run the viewer itself. Started from a terminal this
+# is a foreground process and does show its window, which is also why --wait has
+# nothing left to do here.
+view=$(find_first \
+  "${SQLDOC_VIEW-}" \
+  "$here/../bin/sqldoc-view" \
+  "$here/bin/sqldoc-view" \
+  "$HOME/.local/bin/sqldoc-view" \
+  /usr/local/bin/sqldoc-view || true)
+
+if [ -z "$view" ]; then
+  view=$(command -v sqldoc-view 2>/dev/null || true)
+fi
+
+if [ -z "$view" ]; then
+  echo "sqldoc-app: the standalone viewer is not installed." >&2
+  echo "  run scripts/install.sh from a checkout, or set SQLDOC_VIEW" >&2
+  exit 1
+fi
+
+exec "$view" "$@"

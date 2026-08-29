@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/darianmavgo/sqldoc/internal/doc"
+	"github.com/darianmavgo/sqldoc/internal/pick"
 	"github.com/darianmavgo/sqldoc/internal/session"
 	_ "modernc.org/sqlite"
 )
@@ -43,6 +46,9 @@ func do(t *testing.T, s *Server, target string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest("GET", target, nil)
 	r.Host = "127.0.0.1:1234"
+	// The file dialog is refused to anything that is not physically on
+	// loopback, and httptest's default RemoteAddr is not.
+	r.RemoteAddr = "127.0.0.1:1234"
 	w := httptest.NewRecorder()
 	s.guard(s.mux).ServeHTTP(w, r)
 	return w
@@ -133,5 +139,65 @@ func TestRowsShape(t *testing.T) {
 	}
 	if p.Rows[0][1] != "alpha" {
 		t.Errorf("first row = %v", p.Rows[0])
+	}
+}
+
+// The open dialog belongs to another application, because one owned by the
+// viewer opens behind it (see internal/pick). That application is still
+// frontmost when the dialog closes, so choosing a database used to look like
+// nothing happening at all: the document opened into a window that stayed
+// buried behind whatever had been showing the dialog. Getting the window back
+// is the front end's job, and it only happens if the server asks.
+//
+// Cancelling counts. A dismissed dialog that leaves the window behind Finder is
+// the same failure as a successful one that does.
+func TestPickBringsTheWindowBack(t *testing.T) {
+	real := pickOpen
+	t.Cleanup(func() { pickOpen = real })
+
+	chosen := filepath.Join(t.TempDir(), "second.db")
+	db, err := sql.Open("sqlite", "file:"+chosen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE t (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	for _, tc := range []struct {
+		name string
+		path string
+		err  error
+	}{
+		{"chosen", chosen, nil},
+		{"cancelled", "", pick.ErrCancelled},
+		{"failed", "", errors.New("no dialog available")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pickOpen = func(context.Context, string) (string, error) { return tc.path, tc.err }
+
+			s := newTestServer(t)
+			activated := 0
+			s.Activate = func() { activated++ }
+
+			do(t, s, "/api/pick?k="+s.Token())
+			if activated != 1 {
+				t.Errorf("window activated %d times, want 1", activated)
+			}
+		})
+	}
+}
+
+// A front end with no window to raise - the browser one - must not be a nil
+// call in the middle of the pick handler.
+func TestPickWithoutAnActivateHook(t *testing.T) {
+	real := pickOpen
+	t.Cleanup(func() { pickOpen = real })
+	pickOpen = func(context.Context, string) (string, error) { return "", pick.ErrCancelled }
+
+	s := newTestServer(t)
+	if got := do(t, s, "/api/pick?k="+s.Token()).Code; got != http.StatusOK {
+		t.Errorf("status %d, want 200", got)
 	}
 }

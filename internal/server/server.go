@@ -40,6 +40,16 @@ type Server struct {
 	// pickMu serialises the native open dialog. Two dialogs racing would leave
 	// one of them orphaned behind the other.
 	pickMu sync.Mutex
+
+	// Activate, when set, brings the front end's own window back to the front.
+	//
+	// The open dialog has to be owned by an application that is allowed to come
+	// forward, or it opens behind the window that asked for it (see
+	// internal/pick). The cost of that is that the owning application is still
+	// frontmost when the dialog closes, and the viewer's window is left buried
+	// behind it: you choose a database and appear to get nothing. Only the front
+	// end knows how to undo that, so the server asks rather than guessing.
+	Activate func()
 }
 
 // New builds a server for a session.
@@ -263,6 +273,11 @@ func (s *Server) handleOpen(r *http.Request) (any, error) {
 	return docSummary{ID: e.ID, Name: e.Name, Path: e.Path, Size: e.Size}, nil
 }
 
+// pickOpen is the open dialog, named here so a test can stand in for it. What
+// happens around the dialog matters as much as the dialog, and none of it is
+// checkable with a person in front of a screen.
+var pickOpen = pick.Open
+
 // handlePick shows the operating system's open dialog and opens what comes
 // back. It is refused from anywhere but loopback: a dialog appearing on
 // someone's screen because of a remote request would be indefensible.
@@ -273,7 +288,17 @@ func (s *Server) handlePick(r *http.Request) (any, error) {
 	s.pickMu.Lock()
 	defer s.pickMu.Unlock()
 
-	path, err := pick.Open(r.Context(), "Open a SQLite database")
+	// However the dialog ends — chosen, dismissed or failed — the window that
+	// was in front before it opened has to be the window in front after it
+	// closes. This runs last, once the document is open, so the window that
+	// comes forward is already showing the database that was just chosen.
+	defer func() {
+		if s.Activate != nil {
+			s.Activate()
+		}
+	}()
+
+	path, err := pickOpen(r.Context(), "Open a SQLite database")
 	if err == pick.ErrCancelled {
 		return map[string]any{"cancelled": true}, nil
 	}
