@@ -169,3 +169,13 @@ internal/ui/        the viewer: one HTML shell, one CSS file, one JS file
 `internal/doc` knows nothing about HTTP and `internal/ui` knows nothing about
 SQLite. The native window and the browser are the same viewer talking to the
 same API, which is what keeps them from drifting apart.
+
+## Comparison with aggrid
+
+[aggrid](https://github.com/darianmavgo/aggrid) is a companion experiment: an AG Grid (React) client backed by a Go server, built to evaluate framework choices for browsing large SQLite tables.
+
+- **What aggrid has that sqldoc doesn't**: per-column filter menus (contains/equals/range), inherited for free from AG Grid's `AllCommunityModule`.
+- **What sqldoc already matches**: click-to-sort, column resize, sticky headers — all implemented in sqldoc's own vanilla-JS frontend (`internal/ui/app.js`).
+- **What sqldoc does better**: rowid-seek scrolling instead of `LIMIT/OFFSET` (~1000x faster past the first few hundred thousand rows, per sqldoc's own benchmarks); works against any table's schema instead of one hardcoded 9-column shape; single-binary distribution with a real macOS app bundle vs. two hand-started processes; has test coverage (`doc_test.go`, `server_test.go`) where aggrid has none.
+
+If per-column filtering becomes something sqldoc needs, aggrid is the reference for how AG Grid provides it out of the box.
