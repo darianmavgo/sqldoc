@@ -178,7 +178,9 @@ html, body {
   background: var(--head); border-top: 1px solid var(--rule);
   color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums;
 }
-#status .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+/* Truncation is JS-side (elidePath) so both the path's start and its filename
+   stay visible - CSS text-overflow can only cut from one end. */
+#status .path { flex: 1; overflow: hidden; white-space: nowrap; }
 #status .fast { color: #1e8e3e; }
 #status .slow { color: #e37400; }
 
@@ -187,6 +189,41 @@ html, body {
 #bar #docs.solo { pointer-events: none; }
 #bar #docs.unset { color: var(--toolbar-dim); }
 #bar #openbtn { font-size: 15px; }
+#viewbtn[hidden] { display: none; }
+
+/* ---------- gallery: several small tables, scrolled through at once ---------- */
+/* #doc and #gallery are peers sharing the same flex slot below the bar; only
+   one is shown at a time, toggled by setView(). Neither is the overlay #start
+   is - both are ordinary content, the way Table view always was. */
+#doc.off { display: none; }
+#gallery {
+  flex: 1; min-height: 0; overflow: auto; background: var(--ground);
+  display: none; padding: 18px;
+}
+#gallery.on { display: block; }
+
+.gtable {
+  background: var(--page); border: 1px solid var(--rule-strong); border-radius: 8px;
+  margin-bottom: 18px; overflow: hidden;
+  font-size: calc(13px * var(--zoom));
+}
+.glabel {
+  display: flex; align-items: baseline; gap: 8px; padding: 9px 12px;
+  background: var(--head); border-bottom: 1px solid var(--rule-strong);
+  cursor: pointer;
+}
+.glabel:hover { background: var(--rule); }
+.glabel .gname { font-weight: 600; color: var(--ink); }
+.glabel .gcount { color: var(--dim); font-size: .85em; }
+.glabel .gmore { margin-left: auto; color: var(--accent); font-size: .85em; }
+
+.ghead { display: flex; background: var(--head); border-bottom: 1px solid var(--rule); }
+.ghead .cell {
+  font-weight: 600; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ghead .cell .type { color: var(--dim); opacity: .6; font-weight: 400; margin-left: 5px; font-size: .85em; }
+
+.gempty { padding: 14px 12px; color: var(--dim); font-style: italic; }
 
 /* ---------- start page ---------- */
 #start {
@@ -229,7 +266,7 @@ html, body {
 .recent .rname { font-weight: 500; }
 .recent .rpath {
   flex: 1; min-width: 0; color: var(--dim); font-size: 12px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+  overflow: hidden; white-space: nowrap; /* elidePath does the truncating, see app.js */
 }
 .recent .rsize { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
 .startempty { color: var(--dim); font-size: 13px; padding: 10px 0; }

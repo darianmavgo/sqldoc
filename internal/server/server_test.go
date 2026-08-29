@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -19,15 +20,23 @@ import (
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
+	return buildTestServer(t,
+		`CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)`,
+		`INSERT INTO t VALUES (1,'alpha'),(2,'bravo'),(3,'charlie')`,
+	)
+}
+
+// buildTestServer runs arbitrary SQL against a scratch database and opens it
+// as the server's one document, for tests that need a specific shape of
+// document rather than the default single small table.
+func buildTestServer(t *testing.T, stmts ...string) *Server {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "t.db")
 	db, err := sql.Open("sqlite", "file:"+path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{
-		`CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)`,
-		`INSERT INTO t VALUES (1,'alpha'),(2,'bravo'),(3,'charlie')`,
-	} {
+	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatal(err)
 		}
@@ -199,5 +208,78 @@ func TestPickWithoutAnActivateHook(t *testing.T) {
 	s := newTestServer(t)
 	if got := do(t, s, "/api/pick?k="+s.Token()).Code; got != http.StatusOK {
 		t.Errorf("status %d, want 200", got)
+	}
+}
+
+func docDefaultView(t *testing.T, s *Server) string {
+	t.Helper()
+	w := do(t, s, "/api/doc?k="+s.Token())
+	var info struct {
+		DefaultView string `json:"defaultView"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	return info.DefaultView
+}
+
+func tinyTable(name string) string {
+	return `CREATE TABLE ` + name + ` (id INTEGER PRIMARY KEY, v TEXT); ` +
+		`INSERT INTO ` + name + ` VALUES (1,'a'),(2,'b')`
+}
+
+// Several small lookup tables and nothing else is exactly what the gallery
+// view is for.
+func TestDefaultViewGalleryForSeveralSmallTables(t *testing.T) {
+	var stmts []string
+	for _, n := range []string{"a", "b", "c", "d"} {
+		stmts = append(stmts, strings.Split(tinyTable(n), "; ")...)
+	}
+	s := buildTestServer(t, stmts...)
+	if got := docDefaultView(t, s); got != "gallery" {
+		t.Errorf("defaultView = %q, want gallery", got)
+	}
+}
+
+// One big table mixed in with small ones is a real schema, not a handful of
+// lookup tables, regardless of what else is in the document.
+func TestDefaultViewTableWhenOneTableIsBig(t *testing.T) {
+	stmts := []string{
+		`CREATE TABLE big (id INTEGER PRIMARY KEY, v TEXT)`,
+		`WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM c WHERE n<500)
+		 INSERT INTO big SELECT n, 'v'||n FROM c`,
+	}
+	for _, n := range []string{"a", "b"} {
+		stmts = append(stmts, strings.Split(tinyTable(n), "; ")...)
+	}
+	s := buildTestServer(t, stmts...)
+	if got := docDefaultView(t, s); got != "table" {
+		t.Errorf("defaultView = %q, want table", got)
+	}
+}
+
+// A document with more tables than are worth checking (galleryCap) falls back
+// to Table view without estimating the rest of them.
+func TestDefaultViewTableBeyondGalleryCap(t *testing.T) {
+	var stmts []string
+	for i := 0; i < galleryCap+3; i++ {
+		stmts = append(stmts, strings.Split(tinyTable(fmt.Sprintf("t%d", i)), "; ")...)
+	}
+	s := buildTestServer(t, stmts...)
+	if got := docDefaultView(t, s); got != "table" {
+		t.Errorf("defaultView = %q, want table (beyond galleryCap=%d)", got, galleryCap)
+	}
+}
+
+// Fewer than three non-hidden tables isn't "several" no matter how small they
+// are.
+func TestDefaultViewTableWhenTooFewTables(t *testing.T) {
+	var stmts []string
+	for _, n := range []string{"a", "b"} {
+		stmts = append(stmts, strings.Split(tinyTable(n), "; ")...)
+	}
+	s := buildTestServer(t, stmts...)
+	if got := docDefaultView(t, s); got != "table" {
+		t.Errorf("defaultView = %q, want table (only 2 tables)", got)
 	}
 }

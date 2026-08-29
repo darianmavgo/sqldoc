@@ -49,6 +49,12 @@ func (d *Doc) Count(name string) Count {
 	return ct.c
 }
 
+// EstimateRows returns the same O(1) estimate Count does, but never starts a
+// background exact count and leaves no state behind. Unlike Count, it is safe
+// to call for every table in a document — e.g. to decide a default view —
+// without spawning one background COUNT(*) goroutine per table.
+func (d *Doc) EstimateRows(name string) Count { return d.estimate(name) }
+
 // estimate produces a row count in O(1), or gives up. It never scans.
 func (d *Doc) estimate(name string) Count {
 	// ANALYZE leaves a row-count estimate in sqlite_stat1 as the first token of

@@ -38,9 +38,10 @@ type Doc struct {
 	tables []Table
 	style  Style
 
-	mu     sync.Mutex
-	states map[string]*tableState
-	counts map[string]*counter
+	mu        sync.Mutex
+	states    map[string]*tableState
+	counts    map[string]*counter
+	colWidths map[string]*colWidthState
 
 	// lastRead is when the foreground last ran a query, in Unix nanoseconds.
 	// Background work waits for a lull in it so a full-table count can never

@@ -27,7 +27,7 @@ final class Launcher: NSObject, NSApplicationDelegate {
     // perfectly, serves its port, and never puts a window on screen. Going
     // through Launch Services is what gets it a session that can own windows.
     private var viewerApp: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/Library/Viewer.app")
+        Bundle.main.bundleURL.appendingPathComponent("Contents/Library/sqldoc.app")
     }
 
     // Delivered for a double-click, for "Open With", and for a drop onto the

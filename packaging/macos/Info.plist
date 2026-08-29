@@ -5,6 +5,7 @@
   <key>CFBundleName</key>              <string>sqldoc</string>
   <key>CFBundleDisplayName</key>       <string>sqldoc</string>
   <key>CFBundleIdentifier</key>        <string>com.mavgo.sqldoc</string>
+  <key>CFBundleIconFile</key>          <string>sqldoc</string>
   <key>CFBundleExecutable</key>        <string>sqldoc-launcher</string>
   <key>CFBundlePackageType</key>       <string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.2.0</string>
@@ -21,12 +22,13 @@
   <array>
     <dict>
       <key>CFBundleTypeName</key>      <string>SQLite database</string>
-      <key>CFBundleTypeRole</key>      <string>Viewer</string>
-      <key>LSHandlerRank</key>         <string>Alternate</string>
+      <key>CFBundleTypeRole</key>      <string>Editor</string>
+      <key>LSHandlerRank</key>         <string>Owner</string>
       <key>LSItemContentTypes</key>
       <array>
-        <string>public.database</string>
         <string>com.mavgo.sqldoc.sqlite</string>
+        <string>public.database</string>
+        <string>public.data</string>
       </array>
       <key>CFBundleTypeExtensions</key>
       <array>
@@ -36,7 +38,7 @@
     </dict>
   </array>
 
-  <key>UTImportedTypeDeclarations</key>
+  <key>UTExportedTypeDeclarations</key>
   <array>
     <dict>
       <key>UTTypeIdentifier</key>      <string>com.mavgo.sqldoc.sqlite</string>

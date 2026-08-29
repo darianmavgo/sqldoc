@@ -118,6 +118,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/doc", s.json(s.handleDoc))
 	s.mux.HandleFunc("/api/rows", s.json(s.handleRows))
 	s.mux.HandleFunc("/api/count", s.json(s.handleCount))
+	s.mux.HandleFunc("/api/colwidths", s.json(s.handleColumnHints))
 	s.mux.HandleFunc("/api/find", s.json(s.handleFind))
 	s.mux.HandleFunc("/api/ordinal", s.json(s.handleOrdinal))
 	s.mux.HandleFunc("/api/export", s.handleExport)
@@ -377,6 +378,10 @@ type docInfo struct {
 	Driver   string      `json:"driver"`
 	Tables   []doc.Table `json:"tables"`
 	Style    doc.Style   `json:"style"`
+	// DefaultView is "gallery" for a document that is mostly small lookup
+	// tables, "table" otherwise. The viewer treats it as a starting point, not
+	// a lock: either view stays a click away regardless.
+	DefaultView string `json:"defaultView"`
 }
 
 func (s *Server) handleDoc(r *http.Request) (any, error) {
@@ -385,15 +390,54 @@ func (s *Server) handleDoc(r *http.Request) (any, error) {
 		return nil, errNoDocument
 	}
 	return docInfo{
-		ID:       e.ID,
-		Path:     e.Doc.Path,
-		Name:     filepath.Base(e.Doc.Path),
-		Size:     e.Doc.Size,
-		Modified: e.Doc.Modified,
-		Driver:   doc.DriverLabel,
-		Tables:   e.Doc.Tables(),
-		Style:    e.Doc.Style(),
+		ID:          e.ID,
+		Path:        e.Doc.Path,
+		Name:        filepath.Base(e.Doc.Path),
+		Size:        e.Doc.Size,
+		Modified:    e.Doc.Modified,
+		Driver:      doc.DriverLabel,
+		Tables:      e.Doc.Tables(),
+		Style:       e.Doc.Style(),
+		DefaultView: defaultView(e.Doc),
 	}, nil
+}
+
+// galleryMinRows is the point at which a table stops being "a small lookup
+// table" for the purpose of picking a default view.
+const galleryMinRows = 50
+
+// galleryCap bounds how many tables are worth checking at all. Each check is
+// an O(1) estimate (see Doc.EstimateRows), but doing it for every table on a
+// document with hundreds of them reintroduces a cost proportional to table
+// count on the very request a viewer waits on before its first paint — so
+// checking stops once a document plainly isn't "a few small lookup tables"
+// regardless of what's in the rest of it.
+const galleryCap = 12
+
+// defaultView decides which view a document opens into. Gallery is offered
+// when there are several tables and every one of them is small; anything else
+// - one big table among many, an ungalleried view, more tables than are worth
+// checking - falls back to the ordinary one-table-at-a-time view. Either view
+// stays reachable via the toggle regardless of which one this picks.
+func defaultView(d *doc.Doc) string {
+	n := 0
+	for _, t := range d.Tables() {
+		if t.Hidden {
+			continue
+		}
+		n++
+		if n > galleryCap {
+			return "table"
+		}
+		c := d.EstimateRows(t.Name)
+		if !c.Known || c.Rows >= galleryMinRows {
+			return "table"
+		}
+	}
+	if n >= 3 {
+		return "gallery"
+	}
+	return "table"
 }
 
 func (s *Server) handleRows(r *http.Request) (any, error) {
@@ -439,6 +483,17 @@ func (s *Server) handleCount(r *http.Request) (any, error) {
 		return nil, err
 	}
 	return d.Count(r.URL.Query().Get("table")), nil
+}
+
+// handleColumnHints answers with the best column-width sample known so far,
+// starting the background scan on first ask. Polled the same way /api/count
+// is: a quick answer that isn't final yet, refined by asking again.
+func (s *Server) handleColumnHints(r *http.Request) (any, error) {
+	d, err := s.requireDoc(r)
+	if err != nil {
+		return nil, err
+	}
+	return d.ColumnHints(r.URL.Query().Get("table")), nil
 }
 
 func (s *Server) handleOrdinal(r *http.Request) (any, error) {

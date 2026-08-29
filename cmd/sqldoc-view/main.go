@@ -91,6 +91,7 @@ func main() {
 	w.SetTitle("sqldoc")
 	w.SetSize(1200, 800, webview.HintNone)
 	w.Navigate(url)
+	setupMenu()
 	activate()
 	// SetSize above is the size to fall back to; this is the size it opens at
 	// where the platform can say what "the screen" means.

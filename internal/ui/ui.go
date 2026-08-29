@@ -30,6 +30,7 @@ var shellTmpl = `<!doctype html>
   <button id="closebtn" title="Close this database (⌘W)">✕</button>
   <span class="sep"></span>
   <select id="tbl" title="Table"></select>
+  <button id="viewbtn" title="Scroll through every small table at once">⊞</button>
   <span class="meta" id="pos">…</span>
   <span class="spacer"></span>
   <span class="meta" id="meta"></span>
@@ -79,6 +80,8 @@ var shellTmpl = `<!doctype html>
     <span class="path" id="path"></span>
   </div>
 </div>
+
+<div id="gallery"></div>
 
 <script>window.__SQLDOC__={token:{{TOKEN}}};</script>
 <script>{{JS}}</script>

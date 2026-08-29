@@ -131,6 +131,11 @@ if [ "$os" = Darwin ]; then
   cp -R bin/sqldoc.app "$app_dir/sqldoc.app"
   say "installed $app_dir/sqldoc.app"
 
+  # Finder caches an application's icon against the bundle it came from, and a
+  # bundle replaced at the same path can keep showing the icon it used to have.
+  # Bumping the modification date is what tells it to look again.
+  touch "$app_dir/sqldoc.app"
+
   # Registering is the step that makes Finder aware of the bundle's document
   # types. Copying it into /Applications alone is not enough on every macOS.
   lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister

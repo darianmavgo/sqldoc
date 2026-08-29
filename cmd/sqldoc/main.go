@@ -24,17 +24,19 @@ const usage = `sqldoc — open a SQLite database as a document
 
 Usage:
   sqldoc                        open the start page: recent files, drag and drop
-  sqldoc <file.db> [more.db...] open one or more databases in your browser
-  sqldoc serve [file.db...]     serve them and print the URL
+  sqldoc <file.db> [more.db...] open one or more databases (in desktop app on macOS, or browser)
+  sqldoc serve [file.db...]     serve them via local web server and print the URL
   sqldoc info  <file.db>        print what the document contains
   sqldoc bench <file.db>        measure how fast it reads
 
 Flags:
+  -browser      force opening in the web browser instead of the desktop app
+  -w, -wait     stay in the foreground until the desktop app window closes
   -p <port>     port to listen on (default: any free port)
   -immutable    promise the file will not change while open; skips locking and
                 WAL recovery for a faster cold start. Unsafe if anything else
                 writes the file.
-  -no-open      do not launch a browser
+  -no-open      do not launch a desktop app or browser
   -version      print version and the SQLite driver in use
 `
 
@@ -44,11 +46,14 @@ func main() {
 	log := func(format string, a ...any) { fmt.Fprintf(os.Stderr, format+"\n", a...) }
 
 	var (
-		port      = flag.Int("p", 0, "port")
-		immutable = flag.Bool("immutable", false, "open immutable")
-		noOpen    = flag.Bool("no-open", false, "do not launch a browser")
-		showVer   = flag.Bool("version", false, "print version")
+		port       = flag.Int("p", 0, "port")
+		immutable  = flag.Bool("immutable", false, "open immutable")
+		useBrowser = flag.Bool("browser", false, "force opening in browser")
+		waitExit   = flag.Bool("w", false, "wait for app window to close")
+		noOpen     = flag.Bool("no-open", false, "do not launch app or browser")
+		showVer    = flag.Bool("version", false, "print version")
 	)
+	flag.BoolVar(waitExit, "wait", false, "wait for app window to close")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 
 	// The subcommand is lifted out before flags are parsed so that flags may be
@@ -91,14 +96,77 @@ func main() {
 			log("sqldoc: %v", err)
 			os.Exit(1)
 		}
+	case "serve":
+		if err := serve(args, opt, *port, !*noOpen); err != nil {
+			log("sqldoc: %v", err)
+			os.Exit(1)
+		}
 	default:
-		// No arguments is not an error: it opens the start page, the same way
-		// a browser with no URL still gives you somewhere to start.
+		// On macOS, prefer the installed desktop application unless told otherwise.
+		if runtime.GOOS == "darwin" && !*useBrowser && !*noOpen && *port == 0 {
+			if app := findMacApp(); app != "" {
+				if err := openMacApp(app, args, *waitExit, *immutable); err != nil {
+					log("sqldoc: %v", err)
+					os.Exit(1)
+				}
+				return
+			}
+		}
+
+		// Fall back to built-in web server + browser.
 		if err := serve(args, opt, *port, !*noOpen); err != nil {
 			log("sqldoc: %v", err)
 			os.Exit(1)
 		}
 	}
+}
+
+func findMacApp() string {
+	if custom := os.Getenv("SQLDOC_APP"); custom != "" {
+		if fi, err := os.Stat(custom); err == nil && fi.IsDir() {
+			return custom
+		}
+	}
+	candidates := []string{
+		"/Applications/sqldoc.app",
+		filepath.Join(os.Getenv("HOME"), "Applications", "sqldoc.app"),
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
+
+func openMacApp(appPath string, paths []string, wait bool, immutable bool) error {
+	var absPaths []string
+	for _, p := range paths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(abs); err != nil {
+			return err
+		}
+		absPaths = append(absPaths, abs)
+	}
+
+	openArgs := []string{"-a", appPath}
+	if wait {
+		openArgs = append(openArgs, "-W")
+	}
+	if len(absPaths) > 0 {
+		openArgs = append(openArgs, absPaths...)
+	}
+	if immutable {
+		openArgs = append(openArgs, "--args", "-immutable")
+	}
+
+	cmd := exec.Command("open", openArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func serve(paths []string, opt doc.Options, port int, launch bool) error {
@@ -266,6 +334,15 @@ func bench(path string, opt doc.Options) error {
 	}
 	fmt.Printf("  exact count settled after %8s   [%s rows, in the background]\n\n",
 		round(settle), comma(total))
+
+	// Wait for the background column-width sample. It runs on the same
+	// yield-to-foreground discipline as the count, so this has to happen after
+	// the timings above rather than compete with them for the disk.
+	t2b := time.Now()
+	for i := 0; i < 400 && !d.ColumnHints(target).Done; i++ {
+		time.Sleep(15 * time.Millisecond)
+	}
+	fmt.Printf("  column width sample settled after %8s\n\n", round(time.Since(t2b)))
 
 	// Sequential scroll: the path taken while someone holds the scroll wheel.
 	seq := sample(60, func(i int) time.Duration {

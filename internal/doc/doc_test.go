@@ -200,6 +200,45 @@ func TestCountDoesNotBlock(t *testing.T) {
 	}
 }
 
+// EstimateRows has to agree with what Count would have estimated, without
+// taking Count's side effect of starting a background exact count.
+func TestEstimateRowsMatchesCountEstimate(t *testing.T) {
+	path := build(t,
+		`CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)`,
+		`INSERT INTO t VALUES (1,'a'),(2,'b'),(3,'c')`,
+	)
+	d := open(t, path)
+
+	e := d.EstimateRows("t")
+	if !e.Known || e.Rows != 3 {
+		t.Errorf("EstimateRows = %+v, want Known=true Rows=3", e)
+	}
+	if e.Exact {
+		t.Error("EstimateRows reported Exact; only Count's background pass may")
+	}
+}
+
+// A document with many tables must be checkable cheaply for the gallery-view
+// heuristic (see defaultView in internal/server), which means EstimateRows
+// cannot carry Count's side effect of spawning one exact-count goroutine per
+// table it's asked about.
+func TestEstimateRowsDoesNotStartBackgroundCount(t *testing.T) {
+	path := build(t,
+		`CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)`,
+		`INSERT INTO t VALUES (1,'a'),(2,'b')`,
+	)
+	d := open(t, path)
+
+	d.EstimateRows("t")
+
+	d.mu.Lock()
+	_, started := d.counts["t"]
+	d.mu.Unlock()
+	if started {
+		t.Error("EstimateRows started background count state; it must not")
+	}
+}
+
 // Blobs must never be shipped to the viewer, only their size.
 func TestBlobsAreNotShipped(t *testing.T) {
 	path := build(t,

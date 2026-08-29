@@ -30,9 +30,133 @@ static BOOL sqldocIsDocumentWindow(NSWindow *w) {
     return YES;
 }
 
+static void sqldocSetupMenu(void) {
+    static BOOL menuInstalled = NO;
+    if (menuInstalled) return;
+    menuInstalled = YES;
+
+    NSApplication *app = [NSApplication sharedApplication];
+
+    NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
+
+    // 1. Application (Apple) Menu
+    NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:appMenuItem];
+    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"sqldoc"];
+    [appMenuItem setSubmenu:appMenu];
+
+    NSMenuItem *aboutItem = [appMenu addItemWithTitle:@"About sqldoc" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+    [aboutItem setTarget:app];
+
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *servicesItem = [appMenu addItemWithTitle:@"Services" action:NULL keyEquivalent:@""];
+    NSMenu *servicesMenu = [[NSMenu alloc] initWithTitle:@"Services"];
+    [servicesItem setSubmenu:servicesMenu];
+    [app setServicesMenu:servicesMenu];
+
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *hideItem = [appMenu addItemWithTitle:@"Hide sqldoc" action:@selector(hide:) keyEquivalent:@"h"];
+    [hideItem setTarget:app];
+
+    NSMenuItem *hideOthersItem = [appMenu addItemWithTitle:@"Hide Others" action:@selector(hideOtherApplications:) keyEquivalent:@"h"];
+    [hideOthersItem setKeyEquivalentModifierMask:NSEventModifierFlagOption | NSEventModifierFlagCommand];
+    [hideOthersItem setTarget:app];
+
+    NSMenuItem *showAllItem = [appMenu addItemWithTitle:@"Show All" action:@selector(unhideAllApplications:) keyEquivalent:@""];
+    [showAllItem setTarget:app];
+
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *quitItem = [appMenu addItemWithTitle:@"Quit sqldoc" action:@selector(terminate:) keyEquivalent:@"q"];
+    [quitItem setTarget:app];
+
+    // 2. File Menu
+    NSMenuItem *fileMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:fileMenuItem];
+    NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+    [fileMenuItem setSubmenu:fileMenu];
+    [fileMenu addItemWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"w"];
+
+    // 3. Edit Menu (Standard clipboard & editing shortcuts: Cmd+C, Cmd+V, Cmd+X, Cmd+A, Cmd+Z)
+    NSMenuItem *editMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:editMenuItem];
+    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
+    [editMenuItem setSubmenu:editMenu];
+
+    [editMenu addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
+    NSMenuItem *redoItem = [editMenu addItemWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"Z"];
+    [redoItem setKeyEquivalentModifierMask:NSEventModifierFlagCommand | NSEventModifierFlagShift];
+    [editMenu addItem:[NSMenuItem separatorItem]];
+    [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
+    [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
+    [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+
+    // 4. View Menu
+    NSMenuItem *viewMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:viewMenuItem];
+    NSMenu *viewMenu = [[NSMenu alloc] initWithTitle:@"View"];
+    [viewMenuItem setSubmenu:viewMenu];
+
+    NSMenuItem *fullScreenItem = [viewMenu addItemWithTitle:@"Toggle Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
+    [fullScreenItem setKeyEquivalentModifierMask:NSEventModifierFlagControl | NSEventModifierFlagCommand];
+
+    // 5. Window Menu
+    NSMenuItem *windowMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:windowMenuItem];
+    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+    [windowMenuItem setSubmenu:windowMenu];
+
+    [windowMenu addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+    [windowMenu addItemWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""];
+    [windowMenu addItem:[NSMenuItem separatorItem]];
+    [windowMenu addItemWithTitle:@"Bring All to Front" action:@selector(arrangeInFront:) keyEquivalent:@""];
+
+    // 6. Help Menu
+    NSMenuItem *helpMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:helpMenuItem];
+    NSMenu *helpMenu = [[NSMenu alloc] initWithTitle:@"Help"];
+    [helpMenuItem setSubmenu:helpMenu];
+    [app setHelpMenu:helpMenu];
+
+    [app setWindowsMenu:windowMenu];
+    [app setMainMenu:mainMenu];
+
+    // Local key event monitor to guarantee Cmd+Q, Cmd+W, Cmd+H, Cmd+M always work even when WKWebView has focus
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+        NSEventModifierFlags flags = [event modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask;
+        if (flags == NSEventModifierFlagCommand) {
+            NSString *chars = [[event charactersIgnoringModifiers] lowercaseString];
+            if ([chars isEqualToString:@"q"]) {
+                [NSApp terminate:nil];
+                return nil;
+            } else if ([chars isEqualToString:@"w"]) {
+                [[NSApp keyWindow] performClose:nil];
+                return nil;
+            } else if ([chars isEqualToString:@"m"]) {
+                [[NSApp keyWindow] performMiniaturize:nil];
+                return nil;
+            } else if ([chars isEqualToString:@"h"]) {
+                [NSApp hide:nil];
+                return nil;
+            }
+        } else if (flags == (NSEventModifierFlagCommand | NSEventModifierFlagOption)) {
+            NSString *chars = [[event charactersIgnoringModifiers] lowercaseString];
+            if ([chars isEqualToString:@"h"]) {
+                [NSApp hideOtherApplications:nil];
+                return nil;
+            }
+        }
+        return event;
+    }];
+}
+
 static void sqldocShowWindows(void) {
     NSApplication *app = [NSApplication sharedApplication];
     [app setActivationPolicy:NSApplicationActivationPolicyRegular];
+    sqldocSetupMenu();
 
     NSRect visible = [[NSScreen mainScreen] visibleFrame];
     for (NSWindow *w in [app windows]) {
@@ -76,6 +200,9 @@ static void sqldocActivate(void) {
 }
 */
 import "C"
+
+// setupMenu installs the standard native macOS menu bar and keyboard shortcuts.
+func setupMenu() { C.sqldocSetupMenu() }
 
 // activate brings the viewer's window onto the screen and in front.
 func activate() { C.sqldocActivate() }

@@ -16,12 +16,14 @@ const el = { bar:$("#bar"), sel:$("#tbl"), meta:$("#meta"), scroll:$("#scroll"),
              drop:$("#drop"), dropMsg:$("#dropmsg"), busy:$("#busy"),
              busyFill:$("#busyfill"), busyMsg:$("#busymsg"),
              pathInput:$("#pathinput"), startFoot:$("#startfoot"),
-             startOpen:$("#startopen"), closeBtn:$("#closebtn") };
+             startOpen:$("#startopen"), closeBtn:$("#closebtn"),
+             doc:$("#doc"), gallery:$("#gallery"), viewBtn:$("#viewbtn") };
 
 const S = {
   session:{docs:[], recents:[], canPick:false}, docId:null,
   doc:null, table:null, cols:[], count:{known:false,rows:0,exact:false},
   hasRowid:false, top:0, blocks:new Map(), pending:new Map(), widths:[], gutter:64,
+  view:"table", galleryLoaded:false,
   sort:null, zoom:1, scale:1, viewport:30, syncing:false, dirty:false, lastDir:1, prevTop:0, userSized:false, slack:null,
   find:{q:"",matches:[],idx:-1,cursor:0,done:true,running:false,restart:null,hits:new Map()},
 };
@@ -128,7 +130,7 @@ async function openDoc(id) {
   if (S.doc.style.theme === "light" || S.doc.style.theme === "dark")
     document.documentElement.dataset.theme = S.doc.style.theme;
   if (S.doc.style.accent) document.documentElement.style.setProperty("--accent", S.doc.style.accent);
-  el.path.textContent = S.doc.path;
+  updateStatusPath();
 
   const visible = S.doc.tables.filter(t => !t.hidden);
   const list = visible.length ? visible : S.doc.tables;
@@ -146,13 +148,29 @@ async function openDoc(id) {
     el.sel.appendChild(o);
   }
   el.sel.value = list[0].name;
+  el.viewBtn.hidden = list.length < 2;
   renderDocBar();
-  await setTable(list[0].name);
+
+  // A document switched to from another must not inherit the previous one's
+  // idea of which table (or which view) was showing.
+  S.table = null;
+  S.galleryLoaded = false;
+  if (S.doc.defaultView === "gallery") await showGalleryView();
+  else await showTableView(list[0].name);
 }
 
 function fail(e) {
   el.err.classList.add("on");
   el.err.textContent = String(e && e.message || e);
+}
+
+// updateStatusPath re-elides the status bar's path to whatever space is
+// actually available right now. Always computed from the pristine
+// S.doc.path, never from whatever text happens to be on screen already, so
+// repeated resizes narrow and widen the same way instead of compounding.
+function updateStatusPath() {
+  if (!S.doc) return;
+  el.path.textContent = elidePath(S.doc.path, el.path.clientWidth, statusFont());
 }
 
 /* ------------------------------------------------- opening documents */
@@ -186,9 +204,17 @@ function showStart() {
   S.docId = null;
   S.doc = null;
   S.cols = [];
+  S.table = null;
+  S.view = "table";
+  S.galleryLoaded = false;
   abortAll();
   document.title = "sqldoc";
   el.start.classList.add("on");
+  el.doc.classList.remove("off");
+  el.gallery.classList.remove("on");
+  el.gallery.innerHTML = "";
+  el.viewBtn.classList.remove("on");
+  el.viewBtn.hidden = true;
   el.pos.textContent = "";
   el.meta.textContent = "";
   el.timing.textContent = "";
@@ -224,10 +250,13 @@ function renderStart() {
     b.className = "recent";
     b.title = r.path;
     b.innerHTML = `<span class="rname">${esc(r.name)}</span>` +
-                  `<span class="rpath">${esc(r.path)}</span>` +
+                  `<span class="rpath"></span>` +
                   `<span class="rsize">${fmtBytes(r.size)}</span>`;
     b.onclick = () => openPath(r.path);
     el.recents.appendChild(b);
+    const rp = b.querySelector(".rpath");
+    rp.dataset.full = r.path;
+    rp.textContent = elidePath(r.path, rp.clientWidth, recentPathFont());
   }
 }
 
@@ -402,6 +431,140 @@ async function setTable(name) {
   el.empty.classList.toggle("on", page.rows.length === 0 && !S.count.rows);
   el.err.classList.remove("on");
   invalidate();
+  refreshColumnHints();
+}
+
+/* --------------------------------------------------------------- gallery */
+// A document that is mostly small lookup tables opens into Gallery instead of
+// Table view (see defaultView in internal/server) - every non-hidden table
+// rendered as its own small grid, one below another, so it can be read top to
+// bottom instead of picked through one table at a time from the dropdown.
+// Table view stays a click away regardless of which one a document defaults
+// into.
+const GALLERY_ROW_CAP = 200; // defensive cap if manually toggled onto a bigger table
+
+function firstVisibleTable() {
+  const visible = S.doc.tables.filter(t => !t.hidden);
+  const list = visible.length ? visible : S.doc.tables;
+  return list.length ? list[0].name : null;
+}
+
+// showTableView switches to Table view, loading a table only if a different
+// one (or none) is already showing - so re-entering Table view after a trip
+// through Gallery doesn't re-fetch what's already on screen.
+// setTableControlsVisible hides find/zoom/export while Gallery is showing -
+// each is meaningless without one active table (find and export both key off
+// S.table, which is not necessarily set at all while Gallery has never been
+// left). Uses style.display, the same mechanism renderDocBar already uses to
+// hide these when no document is open at all, so the two don't fight: this
+// only ever runs after renderDocBar, narrowing "a document is open" down to
+// "and Table view is what's showing."
+function setTableControlsVisible(show) {
+  for (const id of ["findbtn","zin","zout","save"]) {
+    const n = document.getElementById(id);
+    if (n) n.style.display = show ? "" : "none";
+  }
+}
+
+async function showTableView(name) {
+  name = name || S.table || firstVisibleTable();
+  S.view = "table";
+  el.doc.classList.remove("off");
+  el.gallery.classList.remove("on");
+  el.viewBtn.classList.remove("on");
+  setTableControlsVisible(true);
+  if (name && name !== S.table) {
+    el.sel.value = name;
+    await setTable(name);
+  }
+}
+
+async function showGalleryView() {
+  S.view = "gallery";
+  el.doc.classList.add("off");
+  el.gallery.classList.add("on");
+  el.viewBtn.classList.add("on");
+  setTableControlsVisible(false);
+  if (!S.galleryLoaded) await openGallery();
+}
+
+function toggleView() {
+  return S.view === "gallery" ? showTableView() : showGalleryView();
+}
+
+// openGallery fetches every non-hidden table's rows (capped, defensively -
+// this view is meant for small tables, not a substitute for Table view on a
+// large one) and renders each as its own grid.
+async function openGallery() {
+  S.galleryLoaded = true;
+  const docId = S.docId;
+  const visible = S.doc.tables.filter(t => !t.hidden);
+  const results = await Promise.all(visible.map(async (t) => {
+    try { return {t, page: await getJSON("/api/rows", {table:t.name, offset:0, limit:GALLERY_ROW_CAP+1})}; }
+    catch (e) { return {t, error: e}; }
+  }));
+  if (S.docId !== docId) return; // a different document is showing by now
+  el.gallery.innerHTML = "";
+  for (const r of results) el.gallery.appendChild(renderMiniTable(r));
+}
+
+// renderMiniTable builds one table's grid in full - no virtualized scrolling,
+// since a gallery table is capped well under the size that would need it (see
+// GALLERY_ROW_CAP). Reuses headCell()/writeCell() so a cell renders exactly as
+// it would in Table view, and widestText() (shared with measure()/autoFit())
+// so sizing is decided the same way everywhere.
+function renderMiniTable({t, page, error}) {
+  const box = document.createElement("div");
+  box.className = "gtable";
+
+  const label = document.createElement("div");
+  label.className = "glabel";
+  label.innerHTML = `<span class="gname">${esc(t.label)}</span>`;
+  label.onclick = () => showTableView(t.name);
+  box.appendChild(label);
+
+  if (error) {
+    box.appendChild(Object.assign(document.createElement("div"),
+      {className: "gempty", textContent: String(error.message || error)}));
+    return box;
+  }
+
+  const cols = page.columns || [];
+  const rows = page.rows || [];
+  const shown = Math.min(rows.length, GALLERY_ROW_CAP);
+  label.insertAdjacentHTML("beforeend",
+    `<span class="gcount">${fmtInt(shown)}${rows.length > GALLERY_ROW_CAP ? "+" : ""} rows</span>` +
+    (rows.length > GALLERY_ROW_CAP ? `<span class="gmore">open in Table view →</span>` : ""));
+
+  if (!shown) {
+    box.appendChild(Object.assign(document.createElement("div"),
+      {className: "gempty", textContent: "Empty."}));
+    return box;
+  }
+
+  const texts = cols.map((c, i) => rows.slice(0, shown).map(r => cellText(r[i])));
+  const widths = cols.map((c, i) => widestText(c.name, c.type, texts[i], {min:56, max:460, truncate:60}));
+
+  const head = document.createElement("div");
+  head.className = "ghead";
+  cols.forEach((c, i) => head.appendChild(headCell(c, widths[i], {interactive:false})));
+  box.appendChild(head);
+
+  const body = document.createDocumentFragment();
+  for (let r = 0; r < shown; r++) {
+    const row = document.createElement("div");
+    row.className = "row";
+    cols.forEach((c, i) => {
+      const cell = document.createElement("div");
+      cell.className = "cell" + (c.numeric ? " num" : "");
+      cell.style.width = widths[i] + "px";
+      writeCell(cell, rows[r][i], "");
+      row.appendChild(cell);
+    });
+    body.appendChild(row);
+  }
+  box.appendChild(body);
+  return box;
 }
 
 // refreshCount polls until the count is exact. The estimate lands immediately,
@@ -421,30 +584,134 @@ async function refreshCount() {
 
 /* ---------------------------------------------- column width measuring */
 const ctx2d = document.createElement("canvas").getContext("2d");
-function measure(page) {
-  const font = `${13*S.zoom}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;
+const uiFontFamily = `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;
+const gridFont = () => `${13*S.zoom}px ${uiFontFamily}`;
+// Chrome text elision needs the exact font a container renders in, not the
+// zoomable grid font - #status and the recent list sit outside the grid and
+// don't scale with S.zoom.
+const statusFont = () => `11px ${uiFontFamily}`;      // matches #status's font-size
+const recentPathFont = () => `12px ${uiFontFamily}`;  // matches .recent .rpath's font-size
+
+// elideMiddle drops the middle of a string and keeps roughly equal amounts of
+// its start and end, for text with no structure worth exploiting (elidePath,
+// below, uses this only as its own fallback). Binary search on the split
+// point rather than trimming one character at a time: a status-bar path can
+// be a few hundred characters, and a resize fires this on every frame.
+function elideMiddle(text, maxWidthPx, font) {
   ctx2d.font = font;
-  const PAD = 22, MIN = 56, MAX = 460;
+  if (ctx2d.measureText(text).width <= maxWidthPx) return text;
+  const ell = "…";
+  let lo = 0, hi = Math.floor(text.length / 2);
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const s = text.slice(0, mid) + ell + text.slice(text.length - mid);
+    if (ctx2d.measureText(s).width <= maxWidthPx) lo = mid; else hi = mid - 1;
+  }
+  return lo === 0 ? ell : text.slice(0, lo) + ell + text.slice(text.length - lo);
+}
+
+// elidePath is the Chrome-style version of the above: the filename is always
+// shown in full, and the directory prefix grows one path segment at a time
+// (never cutting a name mid-word) for as long as "<prefix>/…/<filename>"
+// still fits. Falls back to elideMiddle on the filename itself only if the
+// filename alone can't fit the container.
+function elidePath(path, maxWidthPx, font) {
+  ctx2d.font = font;
+  if (ctx2d.measureText(path).width <= maxWidthPx) return path;
+
+  const slash = path.lastIndexOf("/");
+  const base = slash >= 0 ? path.slice(slash + 1) : path;
+  const segs = slash >= 0 ? path.slice(0, slash).split("/") : [];
+
+  if (ctx2d.measureText(base).width > maxWidthPx * 0.9) return elideMiddle(base, maxWidthPx, font);
+
+  let head = "";
+  for (let i = 0; i < segs.length; i++) {
+    const next = i === 0 ? segs[i] : head + "/" + segs[i];
+    if (ctx2d.measureText(next + "/…/" + base).width > maxWidthPx) break;
+    head = next;
+  }
+  return head ? head + "/…/" + base : "…/" + base;
+}
+
+// cellText turns a raw cell value (from a fetched page) into the string a
+// width measurement scores. Matches writeCell's own NULL/blob handling so a
+// column is never sized against something the grid wouldn't actually show.
+function cellText(v) {
+  return v === null ? "NULL" : typeof v === "object" ? "◼ 000 KB" : String(v);
+}
+
+// widestText scores a header against candidate value strings and returns the
+// pixel width needed for the widest one, clamped to [min, max]. The one
+// measuring routine behind measure(), autoFit(), and applyColumnHints() (the
+// background-corrected width from a wider server-side sample), so "how wide
+// does this column need to be" is decided one way, not three.
+function widestText(name, type, texts, {min, max, truncate}) {
+  const font = gridFont();
+  ctx2d.font = "600 " + font;
+  let w = ctx2d.measureText(name).width + (type ? ctx2d.measureText(" "+type).width*0.85 : 0);
+  ctx2d.font = font;
+  for (const s of texts) {
+    if (s == null) continue;
+    const m = ctx2d.measureText(s.length > truncate ? s.slice(0,truncate) : s).width;
+    if (m > w) w = m;
+  }
+  return Math.round(Math.min(max, Math.max(min, w + 22)));
+}
+
+function measure(page) {
+  // Sampling 40 rows is enough to size a column and costs nothing; measuring
+  // every row of the window is what makes naive grids stutter on load. A
+  // wider, representative sample from further into the table arrives later,
+  // in the background — see refreshColumnHints/applyColumnHints below.
+  const step = Math.max(1, Math.floor(page.rows.length / 40));
   S.widths = S.cols.map((c, i) => {
-    ctx2d.font = "600 " + font;
-    let w = ctx2d.measureText(c.name).width + (c.type ? ctx2d.measureText(" "+c.type).width*0.85 : 0);
-    ctx2d.font = font;
-    // Sampling 40 rows is enough to size a column and costs nothing; measuring
-    // every row of the window is what makes naive grids stutter on load.
-    const step = Math.max(1, Math.floor(page.rows.length / 40));
-    for (let r = 0; r < page.rows.length; r += step) {
-      const v = page.rows[r][i];
-      const s = v === null ? "NULL" : typeof v === "object" ? "◼ 000 KB" : String(v);
-      const m = ctx2d.measureText(s.length > 60 ? s.slice(0,60) : s).width;
-      if (m > w) w = m;
-    }
-    return Math.round(Math.min(MAX, Math.max(MIN, w + PAD)));
+    const texts = [];
+    for (let r = 0; r < page.rows.length; r += step) texts.push(cellText(page.rows[r][i]));
+    return widestText(c.name, c.type, texts, {min:56, max:460, truncate:60});
   });
   const digits = Math.max(4, String(Math.max(S.count.rows||0, 1000)).length);
   S.gutter = Math.round(digits * 8 * S.zoom + 20);
   S.userSized = false;
   S.slack = null;
   fitToWidth();
+}
+
+// refreshColumnHints polls the background column-width sample the server
+// builds from a much wider slice of the table than the first page (see
+// Doc.ColumnHints in internal/doc/colwidths.go). Fire-and-forget: first paint
+// already happened via measure() above and never waits on this.
+async function refreshColumnHints() {
+  const table = S.table;
+  for (let i = 0; i < 20; i++) {
+    let h;
+    try { h = await getJSON("/api/colwidths", {table}); } catch { return; }
+    if (S.table !== table) return;
+    if (h.done) { if (h.known) applyColumnHints(h); return; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+
+// applyColumnHints reflows column widths once the background sample lands,
+// combining it with whatever rows are already loaded. A resize the person is
+// actively dragging (S.userSized) is never overridden by this.
+function applyColumnHints(hints) {
+  if (S.userSized || S.table !== hints.table) return;
+  const texts = S.cols.map(() => []);
+  for (const page of S.blocks.values()) {
+    for (const r of page.rows) {
+      for (let i = 0; i < texts.length; i++) texts[i].push(cellText(r[i]));
+    }
+  }
+  for (let i = 0; i < texts.length && i < hints.samples.length; i++) {
+    if (hints.samples[i]) texts[i].push(hints.samples[i]);
+  }
+  S.widths = S.cols.map((c, i) => widestText(c.name, c.type, texts[i], {min:56, max:460, truncate:60}));
+  S.userSized = false;
+  S.slack = null;
+  fitToWidth();
+  buildHead();
+  invalidate();
 }
 
 // fitToWidth spreads leftover horizontal space across the columns so a narrow
@@ -494,21 +761,33 @@ function fitToWidth() {
   S.slack = slack;
 }
 
+// headCell builds one column header. Table view's is interactive - click to
+// sort, drag the grip to resize; a Gallery mini-table's (opts.interactive
+// left false) is neither, since a two-row lookup table has no scroll to sort
+// or column worth manually resizing. Shared so the two headers stay visually
+// identical rather than drifting into two hand-written versions of the same
+// markup.
+function headCell(c, width, opts) {
+  const d = document.createElement("div");
+  d.className = "cell" + (c.numeric ? " num" : "");
+  d.style.width = width + "px"; d.style.height = rowH() + "px";
+  d.title = `${c.name}${c.type ? " · "+c.type : ""}${c.pk ? " · PRIMARY KEY" : ""}${c.notNull ? " · NOT NULL" : ""}`;
+  const arrow = opts.sort && opts.sort.col === c.name ? (opts.sort.desc ? " ▾" : " ▴") : "";
+  d.innerHTML = `<span>${esc(c.name)}</span>${c.type ? `<span class="type">${esc(c.type)}</span>` : ""}${arrow ? `<span class="sort">${arrow}</span>` : ""}`;
+  if (opts.interactive) {
+    d.onclick = () => toggleSort(c.name);
+    d.appendChild(grip(opts.index));
+  }
+  return d;
+}
+
 function buildHead() {
   const f = document.createDocumentFragment();
   const g = document.createElement("div");
   g.className = "cell gut"; g.style.width = S.gutter + "px"; g.style.height = rowH() + "px";
   f.appendChild(g);
   S.cols.forEach((c, i) => {
-    const d = document.createElement("div");
-    d.className = "cell" + (c.numeric ? " num" : "");
-    d.style.width = S.widths[i] + "px"; d.style.height = rowH() + "px";
-    d.title = `${c.name}${c.type ? " · "+c.type : ""}${c.pk ? " · PRIMARY KEY" : ""}${c.notNull ? " · NOT NULL" : ""}`;
-    const arrow = S.sort && S.sort.col === c.name ? (S.sort.desc ? " ▾" : " ▴") : "";
-    d.innerHTML = `<span>${esc(c.name)}</span>${c.type ? `<span class="type">${esc(c.type)}</span>` : ""}${arrow ? `<span class="sort">${arrow}</span>` : ""}`;
-    d.onclick = () => toggleSort(c.name);
-    d.appendChild(grip(i));
-    f.appendChild(d);
+    f.appendChild(headCell(c, S.widths[i], {interactive:true, index:i, sort:S.sort}));
   });
   const fill = document.createElement("div");
   fill.className = "cell fill";
@@ -557,20 +836,10 @@ function sizeColumn(i) {
 }
 
 function autoFit(i) {
-  const font = `${13*S.zoom}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;
-  ctx2d.font = "600 " + font;
-  let w = ctx2d.measureText(S.cols[i].name).width + 30;
-  ctx2d.font = font;
-  for (const page of S.blocks.values()) {
-    for (const r of page.rows) {
-      const v = r[i];
-      const str = v === null ? "NULL" : typeof v === "object" ? "\u25fc 000 KB" : String(v);
-      const m = ctx2d.measureText(str.length > 200 ? str.slice(0,200) : str).width;
-      if (m > w) w = m;
-    }
-  }
+  const texts = [];
+  for (const page of S.blocks.values()) for (const r of page.rows) texts.push(cellText(r[i]));
   S.userSized = true;
-  S.widths[i] = Math.round(Math.min(900, Math.max(40, w + 22)));
+  S.widths[i] = widestText(S.cols[i].name, S.cols[i].type, texts, {min:40, max:900, truncate:200});
   sizeColumn(i);
 }
 
@@ -905,7 +1174,8 @@ async function jumpToRowid(rowid) {
 
 /* --------------------------------------------------------------- input */
 function wire() {
-  el.sel.onchange = () => setTable(el.sel.value);
+  el.sel.onchange = () => showTableView(el.sel.value);
+  el.viewBtn.onclick = toggleView;
   $("#findbtn").onclick = () => el.find.classList.contains("open") ? closeFind() : openFind();
   $("#findprev").onclick = () => stepFind(-1);
   $("#findnext").onclick = () => stepFind(1);
@@ -915,6 +1185,12 @@ function wire() {
   $("#save").onclick = () => { location.href = api("/api/export", {table:S.table}); };
 
   new ResizeObserver(() => { fitToWidth(); buildHead(); invalidate(); }).observe(el.scroll);
+  new ResizeObserver(updateStatusPath).observe(el.status);
+  new ResizeObserver(() => {
+    for (const rp of el.recents.querySelectorAll(".rpath")) {
+      rp.textContent = elidePath(rp.dataset.full, rp.clientWidth, recentPathFont());
+    }
+  }).observe(el.recents);
 
   el.scroll.addEventListener("scroll", () => {
     const t = S.top;
@@ -927,6 +1203,7 @@ function wire() {
     if (meta && e.key === "o") { e.preventDefault(); S.session.canPick ? pickFile() : showStart(); return; }
     if (meta && e.key === "w") { e.preventDefault(); closeDoc(S.docId); return; }
     if (!S.docId) return;
+    if (S.view !== "table") return; // find/zoom/scroll below are Table view's own
     if (meta && e.key === "f") { e.preventDefault(); openFind(); return; }
     if (meta && (e.key === "=" || e.key === "+")) { e.preventDefault(); setZoom(S.zoom*1.1); return; }
     if (meta && e.key === "-") { e.preventDefault(); setZoom(S.zoom/1.1); return; }

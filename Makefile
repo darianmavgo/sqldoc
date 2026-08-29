@@ -104,18 +104,24 @@ $(BIN)/sqldoc-launcher: packaging/macos/Launcher.swift
 # and what receives the "open documents" Apple Event; the nested one is the
 # viewer, which has to be a bundle in its own right or Launch Services will not
 # give it a session that can put a window on screen.
-VIEWERAPP := $(APP)/Contents/Library/Viewer.app
+VIEWERAPP := $(APP)/Contents/Library/sqldoc.app
+
+# The icon goes into both bundles. Finder reads the outer one; the Dock tile
+# belongs to the viewer, because that is the process that owns the window.
+ICON := packaging/macos/sqldoc.icns
 
 .PHONY: app
-app: $(BIN)/sqldoc-view $(BIN)/sqldoc-launcher packaging/macos/Info.plist packaging/macos/Viewer-Info.plist
+app: $(BIN)/sqldoc-view $(BIN)/sqldoc-launcher packaging/macos/Info.plist packaging/macos/Viewer-Info.plist $(ICON)
 	@rm -rf $(APP)
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
-	@mkdir -p $(VIEWERAPP)/Contents/MacOS
+	@mkdir -p $(VIEWERAPP)/Contents/MacOS $(VIEWERAPP)/Contents/Resources
 	@cp packaging/macos/Info.plist $(APP)/Contents/Info.plist
 	@cp $(BIN)/sqldoc-launcher $(APP)/Contents/MacOS/sqldoc-launcher
+	@cp $(ICON) $(APP)/Contents/Resources/sqldoc.icns
 	@printf 'APPL????' > $(APP)/Contents/PkgInfo
 	@cp packaging/macos/Viewer-Info.plist $(VIEWERAPP)/Contents/Info.plist
 	@cp $(BIN)/sqldoc-view $(VIEWERAPP)/Contents/MacOS/sqldoc-view
+	@cp $(ICON) $(VIEWERAPP)/Contents/Resources/sqldoc.icns
 	@printf 'APPL????' > $(VIEWERAPP)/Contents/PkgInfo
 	@codesign --force --sign - $(VIEWERAPP) 2>/dev/null || true
 	@codesign --force --sign - $(APP) 2>/dev/null || \
