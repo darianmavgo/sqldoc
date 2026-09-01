@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>sqlswift · Remaining Port Tasks</title>
+  <style>
+    :root {
+      --bg: #090d13;
+      --surface-1: #0f1724;
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #f0f4fc;
+      --text-muted: #8b9bb4;
+      --accent: #f05138;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      padding: 40px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 2.2rem; margin-bottom: 8px; }
+    h2 { font-size: 1.4rem; color: var(--accent); margin-top: 32px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    p { color: var(--text-muted); }
+    ul { margin-top: 16px; padding-left: 20px; color: var(--text-muted); }
+    li { margin-bottom: 12px; }
+    strong { color: var(--text); }
+  </style>
+</head>
+<body>
+  <h1>Finish Port: sqlswift Remaining Tasks</h1>
+  <p>A checklist of behaviors, styles, and settings present in the original Go/JS <code>sqldoc</code> that still need to be implemented in the native <code>sqlswift</code> application.</p>
+
+  <h2>Architecture & Capabilities</h2>
+  <ul>
+    <li><strong>Web Server / Remote Access:</strong> The original Go CLI included a <code>serve</code> command to host databases over localhost via HTTP (enabling Linux/Windows usage and remote access). The Swift port drops this entirely for a pure native macOS approach, permanently losing cross-platform web UI capabilities.</li>
+  </ul>
+
+  <h2>Behavior</h2>
+  <ul>
+    <li><strong>Full Screen Startup:</strong> The original <code>sqldoc</code> (via its Cgo launcher wrapper) explicitly bounds the application window to the user's screen size on launch (<code>fillScreen()</code>). <code>sqlswift</code> uses standard SwiftUI window sizing (<code>.frame(minWidth: 700, minHeight: 450)</code>), which relies on macOS state restoration instead of forcing maximum screen size.</li>
+    <li><strong>Text Selection & Clipboard:</strong> <code>VirtualizedGridView</code> currently renders text without <code>textSelection(.enabled)</code> or a custom selection model. Users cannot select, highlight, or copy individual cell values or entire rows to their clipboard.</li>
+    <li><strong>Keyboard Navigation:</strong> The virtual grid lacks keyboard event handling for navigating cells via arrow keys, Page Up/Down, Home, or End.</li>
+    <li><strong>Context Menus:</strong> Missing right-click contextual menus on rows and cells (e.g., "Copy Value", "Copy Row as JSON", "Export Table").</li>
+    <li><strong>File Pasting:</strong> The ability to paste a file path directly into the app to open it (fallback for drag-and-drop).</li>
+  </ul>
+
+  <h2>Style</h2>
+  <ul>
+    <li><strong>Dynamic Row Heights:</strong> Row heights are currently strictly hardcoded to <code>26 * zoomScale</code> in <code>VirtualizedGridView.swift</code>. Needs to support auto-expanding rows for large text or user-defined resizing.</li>
+    <li><strong>Data Inspector / Detail View:</strong> Very long text and BLOB data are truncated (<code>truncationMode(.tail)</code>). There is currently no popover or detail inspector to view the full contents of a truncated cell.</li>
+    <li><strong>Skeleton Loading States:</strong> The JS frontend featured skeleton loading rows (<code>.skel</code>) while data was fetching. <code>sqlswift</code> has the design token (<code>DesignTokens.skeleton</code>) but hasn't implemented it in the <code>VirtualizedGridView</code>.</li>
+    <li><strong>Busy / Copy Progress Overlay:</strong> The original app had a dedicated, animated <code>#busy</code> overlay for long-running copy/load operations. The Swift app uses a simpler, unstyled <code>ProgressView</code>.</li>
+    <li><strong>Visual Query Timings:</strong> <code>StatusBarView</code> reports query duration, but lacks the green (<code>.fast</code>) and orange (<code>.slow</code>) threshold color-coding used in the original app to highlight slow queries.</li>
+    <li><strong>Sidebar vs Picker:</strong> The original app used a left sidebar for table navigation. The Swift port uses a titlebar menu picker, which is functional but represents a structural style deviation that might need refinement.</li>
+  </ul>
+
+  <h2>Settings</h2>
+  <ul>
+    <li><strong>Theme Override:</strong> The original app allowed manual toggling between Light and Dark mode (<code>S.doc.style.theme</code>). The Swift app currently inherits the system appearance without offering a manual override setting.</li>
+    <li><strong>State Persistence:</strong> Custom column widths (from drag resizing) and other UI states need to be persisted across sessions (similar to the original <code>userSized</code> properties).</li>
+  </ul>
+</body>
+</html>
